@@ -12,7 +12,7 @@ rugcheck_url = "https://rugcheck.xyz/api/check"  # Replace with the actual RugCh
 tweetscout_url = "https://tweetscout.io/api/check"  # Replace with the actual TweetScout API endpoint
 
 # Function to fetch data from GMGN
-url_gmgn = "https://gmgn.com/popular-tokens"  # Replace with the actual GMGN URL
+url_gmgn = "https://gmgn.ai/popular-tokens"  # Replace with the actual GMGN URL
 def fetch_gmgn_data():
     try:
         response = requests.get(url_gmgn, headers={"User-Agent": "Mozilla/5.0"})
