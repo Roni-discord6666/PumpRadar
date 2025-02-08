@@ -1,53 +1,114 @@
-import os
 import requests
+from bs4 import BeautifulSoup
+import pandas as pd
 
-# Fonction pour récupérer les tokens avec une grande liquidité
-def get_top_memecoins():
+# Telegram bot configuration
+telegram_bot_token = "8053534064:AAFm8iX9zbT_OJvt3S4k5mxqh-MOXPcl2jI"  # Replace with your bot token
+telegram_chat_id = "6374449062"  # Replace with your chat ID
+telegram_url = f"https://api.telegram.org/bot8053534064:AAFm8iX9zbT_OJvt3S4k5mxqh-MOXPcl2jI/sendMessage"
+
+# API URLs
+rugcheck_url = "https://rugcheck.xyz/api/check"  # Replace with the actual RugCheck API endpoint
+tweetscout_url = "https://tweetscout.io/api/check"  # Replace with the actual TweetScout API endpoint
+
+# Function to fetch data from GMGN
+url_gmgn = "https://gmgn.com/popular-tokens"  # Replace with the actual GMGN URL
+def fetch_gmgn_data():
     try:
-        url = os.getenv("API_URL")  # L'URL de l'API sera stockée dans la variable d'environnement API_URL
-        api_key = os.getenv("API_KEY")  # La clé API sera stockée dans la variable d'environnement API_KEY
-        headers = {"x-api-key": api_key}
-        response = requests.get(url, headers=headers)
+        response = requests.get(url_gmgn, headers={"User-Agent": "Mozilla/5.0"})
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
 
-        print("Réponse brute:", response.text)  # Affiche la réponse complète avant la conversion en JSON
+        tokens = []
+        rows = soup.select("table.token-table tbody tr")
+        for row in rows:
+            columns = row.find_all("td")
+            if len(columns) > 0:
+                token_data = {
+                    "Token Name": columns[0].get_text(strip=True),
+                    "Liquidity": float(columns[4].get_text(strip=True).replace(',', '').replace('$', '')),
+                    "Volume": float(columns[1].get_text(strip=True).replace(',', '').replace('$', '')),
+                    "Age (hours)": int(columns[5].get_text(strip=True).replace(' hours', '')),
+                    "Holders": int(columns[6].get_text(strip=True).replace(',', '')),
+                    "Contract Address": columns[7].get_text(strip=True)
+                }
+                tokens.append(token_data)
+        return tokens
+    except Exception as e:
+        print(f"Error fetching GMGN data: {e}")
+        return []
 
-        # Vérifie si la réponse est au format JSON avant de l'utiliser
-        if response.status_code == 200:
-            try:
-                data = response.json()  # Essaie de convertir la réponse en JSON
-                return data["data"]      # Retourne les données si la conversion réussie
-            except ValueError:
-                print("La réponse n'est pas au format JSON ou elle est vide.")
-                return []  # Retourne une liste vide si la réponse n'est pas JSON
-        else:
-            print(f"Erreur API: {response.status_code} - {response.text}")
-            return []  # Retourne une liste vide si l'API retourne une erreur
+# Function to check safety report via RugCheck
+def check_rugcheck(contract_address):
+    try:
+        response = requests.post(rugcheck_url, json={"contract_address": contract_address})
+        response.raise_for_status()
+        data = response.json()
+        return data if "score" in data and data["score"].lower() in ["good", "excellent"] else None
     except requests.exceptions.RequestException as e:
-        print(f"Erreur pendant l'appel API : {e}")
-        return []  # Retourne une liste vide en cas d'erreur réseau
+        print(f"Error checking RugCheck for {contract_address}: {e}")
+        return None
 
-# Fonction pour envoyer un message sur Telegram avec les tokens récupérés
-def send_alert():
-    tokens = get_top_memecoins()
-    if tokens:
-        message = f"Top Memecoins avec une grande liquidité :\n"
-        for token in tokens:
-            message += f"Token: {token['name']}, Symbole: {token['symbol']}, Liquidité: {token['liquidity']}\n"
-        send_telegram_message(message)
-    else:
-        send_telegram_message("Aucun token trouvé ou une erreur est survenue.")
+# Function to fetch Twitter engagement via TweetScout
+def check_twitter_engagement(twitter_handle):
+    try:
+        response = requests.post(tweetscout_url, json={"twitter_handle": twitter_handle})
+        response.raise_for_status()
+        data = response.json()
+        return data if data and "engagement_score" in data else None
+    except requests.exceptions.RequestException as e:
+        print(f"Error checking TweetScout for {twitter_handle}: {e}")
+        return None
 
-# Fonction pour envoyer un message sur Telegram
-def send_telegram_message(message):
-    token = os.getenv("TELEGRAM_TOKEN")  # Le token du bot Telegram est stocké dans la variable d'environnement TELEGRAM_TOKEN
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")  # L'ID du chat est stocké dans la variable d'environnement TELEGRAM_CHAT_ID
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    params = {"chat_id": chat_id, "text": message}
-    response = requests.get(url, params=params)
-    if response.status_code == 200:
-        print("Message envoyé avec succès.")
-    else:
-        print(f"Erreur en envoyant le message : {response.text}")
+# Function to send a message to the Telegram bot
+def send_to_telegram(message):
+    try:
+        response = requests.post(telegram_url, json={"chat_id": telegram_chat_id, "text": message})
+        response.raise_for_status()
+        print("Message sent to Telegram successfully.")
+    except requests.exceptions.RequestException as e:
+        print(f"Error sending message to Telegram: {e}")
 
-# Appeler la fonction d'envoi d'alertes
-send_alert()
+# Main function to combine all steps
+def main():
+    print("Fetching data from GMGN...")
+    tokens = fetch_gmgn_data()
+
+    for token in tokens:
+        print(f"Checking token {token['Token Name']} with CA {token['Contract Address']}...")
+
+        if (
+            token["Liquidity"] < 100000 and
+            token["Volume"] < 250000 and
+            token["Age (hours)"] >= 24 and
+            token["Holders"] <= 300
+        ):
+            print("Token meets criteria. Verifying with RugCheck...")
+            rugcheck_result = check_rugcheck(token["Contract Address"])
+
+            if rugcheck_result:
+                print("RugCheck passed. Checking Twitter engagement...")
+                twitter_data = check_twitter_engagement(token['Token Name'])  # Replace with actual handle extraction
+
+                if twitter_data:
+                    message = (
+                        f"Token Passed All Checks:\n"
+                        f"Name: {token['Token Name']}\n"
+                        f"Contract Address: {token['Contract Address']}\n"
+                        f"Liquidity: {token['Liquidity']}\n"
+                        f"Volume: {token['Volume']}\n"
+                        f"Age (hours): {token['Age (hours)']}\n"
+                        f"Holders: {token['Holders']}\n"
+                        f"Engagement Score: {twitter_data['engagement_score']}\n"
+                        f"RugCheck Score: {rugcheck_result['score']}"
+                    )
+                    send_to_telegram(message)
+                else:
+                    print("Twitter check failed.")
+            else:
+                print("RugCheck failed.")
+        else:
+            print("Token does not meet initial criteria.")
+
+if __name__ == "__main__":
+    main()
