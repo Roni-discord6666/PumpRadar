@@ -13,7 +13,18 @@ def get_top_memecoins():
     url = "https://api.birdeye.so/public/markets"  # API pour récupérer les tokens
     headers = {"x-api-key": os.getenv("BIRDEYE_API_KEY")}  # Clé API à ajouter
     response = requests.get(url, headers=headers).json()
-    
+
+    response = requests.get(url, headers=headers)
+
+print("Réponse brute:", response.text)  # Affiche la réponse complète, avant la conversion en JSON
+
+try:
+    data = response.json()  # Essaie de décoder en JSON
+    return data["data"]      # Si le JSON est valide, utilise-le
+except ValueError:
+    print("La réponse n'est pas au format JSON ou elle est vide.")
+    return []
+
     # Filtrer les tokens avec grosse liquidité
     top_tokens = [
         token for token in response["data"]
